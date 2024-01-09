@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.cargo.extraEnv": {
+        "K8S_OPENAPI_ENABLED_VERSION": "1.28"
+    }
+}
