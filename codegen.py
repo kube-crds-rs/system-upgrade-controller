@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import yaml
-from time import sleep
+import requests
 import tempfile
 import subprocess
 
@@ -16,68 +16,14 @@ rust_lib = """//! Kubernetes CRDs for system-upgrade-controller
 
 """
 
-# Start a kind cluster
-subprocess.run(["kind", "create", "cluster", "--name", "crds-sys-upgrade-controller"])
 
-# Wait for the cluster to be ready
-while True:
-    try:
-        subprocess.run(
-            ["kubectl", "get", "nodes", "--context", "kind-crds-sys-upgrade-controller"]
-        )
-        break
-    except:
-        sleep(1)
-
-# Install the CRDs
-subprocess.run(
-    [
-        "kubectl",
-        "apply",
-        "-f",
-        "https://raw.githubusercontent.com/rancher/system-upgrade-controller/master/manifests/system-upgrade-controller.yaml",
-        "--context",
-        "kind-crds-sys-upgrade-controller",
-    ]
+crds = yaml.safe_load_all(
+    requests.get(
+        "https://github.com/rancher/system-upgrade-controller/releases/download/v0.13.4/crd.yaml"
+    ).text
 )
 
-# Wait for the CRDs to be ready
-while True:
-    try:
-        subprocess.run(
-            [
-                "kubectl",
-                "get",
-                "crd",
-                "--context",
-                "kind-crds-sys-upgrade-controller",
-                "plans.upgrade.cattle.io",
-            ]
-        ).check_returncode()
-        break
-    except:
-        sleep(1)
-
-# Get all the CRDs
-crds = yaml.safe_load(
-    subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "crd",
-            "--context",
-            "kind-crds-sys-upgrade-controller",
-            "-o",
-            "yaml",
-        ],
-        capture_output=True,
-    ).stdout
-)
-
-# Delete the kind cluster
-subprocess.run(["kind", "delete", "cluster", "--name", "crds-sys-upgrade-controller"])
-
-for crd in crds['items']:
+for crd in crds:
     if crd == None:
         continue
     file_name = crd["metadata"]["name"].removesuffix(".upgrade.cattle.io")
