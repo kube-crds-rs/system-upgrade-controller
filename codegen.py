@@ -32,15 +32,21 @@ for crd in crds:
     rust_code = ""
     if crd["kind"] != "CustomResourceDefinition":
         continue
-    if file_name == "settings":
-        rust_lib += f"pub mod {file_name};\npub use {file_name}::*;\n"
-        continue
     # Save the CRD as a tmp yaml file
     with tempfile.NamedTemporaryFile(mode="w") as f:
         yaml.dump(crd, f)
         tmp_file = f.name
         rust_code = subprocess.run(
-            ["kopium", "-f", tmp_file, "--schema=derived", "--docs", "-b"],
+            [
+                "kopium",
+                "-f",
+                tmp_file,
+                "--schema=derived",
+                "--docs",
+                "-b",
+                "--derive=Default",
+                "--derive=PartialEq",
+            ],
             capture_output=True,
         )
         if rust_code.returncode != 0:
@@ -49,8 +55,8 @@ for crd in crds:
         rust_code = rust_code.stdout.decode("utf-8")
 
     rust_code = rust_code.replace(
-        f"// kopium command: kopium -f {tmp_file} --schema=derived --docs -b",
-        f"// kopium command: kopium -f {file_name}.yml --schema=derived --docs -b",
+        f"// kopium command: kopium -f {tmp_file} --schema=derived --docs -b --derive=Default --derive=PartialEq",
+        f"// kopium command: kopium -f {file_name}.yml --schema=derived --docs -b --derive=Default --derive=PartialEq",
     )
     rust_code = "\n".join(
         [
@@ -63,31 +69,34 @@ for crd in crds:
             for line in rust_code.split("\n")
         ]
     )
-    # We're not setting PartialEq, Hash, Default with kopium because then rustfmt would insert a line break, which would make this script more complicated
-    rust_code = (
-        rust_code.replace(
-            ", TypedBuilder, JsonSchema)]\npub struct",
-            ", PartialEq, Default, TypedBuilder, JsonSchema)]\npub struct",
-        )
-        .replace(
-            ", TypedBuilder, JsonSchema)]\n#[kube",
-            ", PartialEq, Default, TypedBuilder, JsonSchema)]\n#[kube",
-        )
-        .replace(
-            ", TypedBuilder, JsonSchema)]\npub enum",
-            ", PartialEq, TypedBuilder, JsonSchema)]\npub enum",
-        )
-    )
     rust_code = "\n".join(
         [
             line.replace(
-                ", TypedBuilder, JsonSchema)]",
-                ')]\n#[cfg_attr(feature = "builder", derive(TypedBuilder))]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]\n#[cfg_attr(not(feature = "schemars"), kube(schema="disabled"))]',
+                ", TypedBuilder, Default, PartialEq, JsonSchema)]",
+                ', Default, PartialEq)]\n#[cfg_attr(feature = "builder", derive(TypedBuilder))]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]\n#[cfg_attr(not(feature = "schemars"), kube(schema="disabled"))]',
+            ).replace(
+                ", TypedBuilder, PartialEq, JsonSchema)]",
+                ', PartialEq)]\n#[cfg_attr(feature = "builder", derive(TypedBuilder))]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]\n#[cfg_attr(not(feature = "schemars"), kube(schema="disabled"))]',
+            ).replace(
+                ", Default, PartialEq, JsonSchema)]",
+                ', Default, PartialEq)]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]\n#[cfg_attr(not(feature = "schemars"), kube(schema="disabled"))]',
+            ).replace(
+                ", PartialEq, JsonSchema)]",
+                ', PartialEq)]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]\n#[cfg_attr(not(feature = "schemars"), kube(schema="disabled"))]',
             )
             if line.startswith("#[derive(") and "CustomResource" in line
             else line.replace(
-                ", TypedBuilder, JsonSchema)]",
-                ')]\n#[cfg_attr(feature = "builder", derive(TypedBuilder))]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]',
+                ", TypedBuilder, Default, PartialEq, JsonSchema)]",
+                ', Default, PartialEq)]\n#[cfg_attr(feature = "builder", derive(TypedBuilder))]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]',
+            ).replace(
+                ", TypedBuilder, PartialEq, JsonSchema)]",
+                ', PartialEq)]\n#[cfg_attr(feature = "builder", derive(TypedBuilder))]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]',
+            ).replace(
+                ", Default, PartialEq, JsonSchema)]",
+                ', Default, PartialEq)]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]',
+            ).replace(
+                ", PartialEq, JsonSchema)]",
+                ', PartialEq)]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]',
             )
             if line.startswith("#[derive(")
             else line
@@ -96,25 +105,27 @@ for crd in crds:
     )
     rust_code = (
         rust_code.replace(
-            "use typed_builder::TypedBuilder;",
-            '#[cfg(feature = "builder")]\nuse typed_builder::TypedBuilder;',
+            "pub use typed_builder::TypedBuilder;",
+            '#[cfg(feature = "builder")]\npub use typed_builder::TypedBuilder;',
         )
         .replace(
-            "use schemars::JsonSchema;",
-            '#[cfg(feature = "schemars")]\nuse schemars::JsonSchema;',
+            "pub use schemars::JsonSchema;",
+            '#[cfg(feature = "schemars")]\npub use schemars::JsonSchema;',
         )
-        .replace("use kube::CustomResource;", "use kube_derive::CustomResource;")
+        .replace(
+            "pub use kube::CustomResource;", "pub use kube_derive::CustomResource;"
+        )
         .replace(
             '#[cfg_attr(feature = "builder", derive(TypedBuilder))]\n#[cfg_attr(feature = "schemars", derive(JsonSchema))]\npub enum',
             '#[cfg_attr(feature = "schemars", derive(JsonSchema))]\npub enum',
         )
     )
     rust_file = f"./src/{file_name}.rs"
+    rust_lib += f"pub mod {file_name};\npub use {file_name}::*;\n"
     with open(rust_file, "w") as f:
         f.write(rust_code)
     # Format the code
     subprocess.run(["rustfmt", rust_file])
-    rust_lib += f"pub mod {file_name};\npub use {file_name}::*;\n"
 
 with open("./src/lib.rs", "w") as f:
     f.write(rust_lib)
